@@ -10,7 +10,7 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS products (
     id        INTEGER PRIMARY KEY AUTOINCREMENT,
     name      TEXT    NOT NULL,
-    sku       TEXT,
+    hsn       TEXT,                       -- HSN/SAC code
     rate      REAL    NOT NULL,          -- price per unit, GST-exclusive
     gst_rate  REAL    NOT NULL DEFAULT 0 -- total GST % (CGST+SGST)
   );
@@ -41,6 +41,7 @@ db.exec(`
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
     bill_id    INTEGER NOT NULL REFERENCES bills(id) ON DELETE CASCADE,
     name       TEXT    NOT NULL,
+    hsn        TEXT,                        -- HSN/SAC code (snapshot at bill time)
     rate       REAL    NOT NULL,
     gst_rate   REAL    NOT NULL,
     qty        REAL    NOT NULL,
@@ -56,6 +57,18 @@ if (!billCols.includes('igst')) db.exec('ALTER TABLE bills ADD COLUMN igst REAL 
 if (!billCols.includes('interstate')) db.exec('ALTER TABLE bills ADD COLUMN interstate INTEGER NOT NULL DEFAULT 0');
 if (!billCols.includes('customer_state')) db.exec('ALTER TABLE bills ADD COLUMN customer_state TEXT');
 
+// Migrate products: the old `sku` column becomes `hsn` (HSN/SAC code).
+const productCols = db.prepare('PRAGMA table_info(products)').all().map((c) => c.name);
+if (productCols.includes('sku') && !productCols.includes('hsn')) {
+  db.exec('ALTER TABLE products RENAME COLUMN sku TO hsn');
+} else if (!productCols.includes('hsn')) {
+  db.exec('ALTER TABLE products ADD COLUMN hsn TEXT');
+}
+
+// Migrate bill_items: add hsn so historical invoices can show the code too.
+const itemCols = db.prepare('PRAGMA table_info(bill_items)').all().map((c) => c.name);
+if (!itemCols.includes('hsn')) db.exec('ALTER TABLE bill_items ADD COLUMN hsn TEXT');
+
 // Seed the single settings row.
 if (!db.prepare('SELECT id FROM settings WHERE id = 1').get()) {
   db.prepare(
@@ -67,13 +80,13 @@ if (!db.prepare('SELECT id FROM settings WHERE id = 1').get()) {
 const count = db.prepare('SELECT COUNT(*) AS n FROM products').get().n;
 if (count === 0) {
   const insert = db.prepare(
-    'INSERT INTO products (name, sku, rate, gst_rate) VALUES (?, ?, ?, ?)'
+    'INSERT INTO products (name, hsn, rate, gst_rate) VALUES (?, ?, ?, ?)'
   );
-  insert.run('Milk 1L', 'MLK001', 60, 5);
-  insert.run('Basmati Rice 1kg', 'RICE01', 120, 5);
-  insert.run('Shampoo 200ml', 'SHM200', 180, 18);
-  insert.run('LED Bulb 9W', 'BLB009', 90, 12);
-  insert.run('Wireless Mouse', 'MOU001', 650, 18);
+  insert.run('Milk 1L', '0401', 60, 5);
+  insert.run('Basmati Rice 1kg', '1006', 120, 5);
+  insert.run('Shampoo 200ml', '3305', 180, 18);
+  insert.run('LED Bulb 9W', '8539', 90, 12);
+  insert.run('Wireless Mouse', '8471', 650, 18);
 }
 
 export default db;

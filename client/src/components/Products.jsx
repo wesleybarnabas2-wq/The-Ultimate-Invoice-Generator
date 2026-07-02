@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { api } from '../api.js';
 
 const GST_SLABS = [0, 5, 12, 18, 28];
-const empty = { name: '', sku: '', rate: '', gstRate: 5 };
+const empty = { name: '', hsn: '', rate: '', gstRate: 5 };
 
 export default function Products() {
   const [products, setProducts] = useState([]);
@@ -19,7 +19,7 @@ export default function Products() {
     try {
       const payload = {
         name: form.name.trim(),
-        sku: form.sku.trim(),
+        hsn: form.hsn.trim(),
         rate: Number(form.rate),
         gstRate: Number(form.gstRate),
       };
@@ -35,7 +35,7 @@ export default function Products() {
 
   const edit = (p) => {
     setEditingId(p.id);
-    setForm({ name: p.name, sku: p.sku || '', rate: p.rate, gstRate: p.gst_rate });
+    setForm({ name: p.name, hsn: p.hsn || '', rate: p.rate, gstRate: p.gst_rate });
   };
 
   const remove = async (id) => {
@@ -55,9 +55,9 @@ export default function Products() {
             <input value={form.name} required
               onChange={(e) => setForm({ ...form, name: e.target.value })} />
           </label>
-          <label>SKU (optional)
-            <input value={form.sku}
-              onChange={(e) => setForm({ ...form, sku: e.target.value })} />
+          <label>HSN/SAC code (optional)
+            <input value={form.hsn}
+              onChange={(e) => setForm({ ...form, hsn: e.target.value })} />
           </label>
           <label>Rate (₹, per unit, GST-exclusive)
             <input type="number" min="0" step="0.01" value={form.rate} required
@@ -85,13 +85,13 @@ export default function Products() {
         <h2>Catalog ({products.length})</h2>
         <table>
           <thead>
-            <tr><th>Name</th><th>SKU</th><th className="num">Rate</th><th className="num">GST</th><th></th></tr>
+            <tr><th>Name</th><th>HSN/SAC</th><th className="num">Rate</th><th className="num">GST</th><th></th></tr>
           </thead>
           <tbody>
             {products.map((p) => (
               <tr key={p.id}>
                 <td>{p.name}</td>
-                <td>{p.sku || '—'}</td>
+                <td>{p.hsn || '—'}</td>
                 <td className="num">₹{p.rate.toFixed(2)}</td>
                 <td className="num">{p.gst_rate}%</td>
                 <td className="actions">

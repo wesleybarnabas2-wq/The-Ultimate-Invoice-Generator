@@ -23,6 +23,7 @@ function serializeBill(bill) {
     interstate,
     items: items.map((it) => ({
       name: it.name,
+      hsn: it.hsn,
       rate: it.rate,
       gst_rate: it.gst_rate,
       qty: it.qty,
@@ -61,22 +62,22 @@ app.get('/api/products', (req, res) => {
 });
 
 app.post('/api/products', (req, res) => {
-  const { name, sku, rate, gstRate } = req.body;
+  const { name, hsn, rate, gstRate } = req.body;
   if (!name || rate == null) {
     return res.status(400).json({ error: 'name and rate are required' });
   }
   const info = db
-    .prepare('INSERT INTO products (name, sku, rate, gst_rate) VALUES (?, ?, ?, ?)')
-    .run(name, sku ?? null, Number(rate), Number(gstRate) || 0);
+    .prepare('INSERT INTO products (name, hsn, rate, gst_rate) VALUES (?, ?, ?, ?)')
+    .run(name, hsn ?? null, Number(rate), Number(gstRate) || 0);
   const row = db.prepare('SELECT * FROM products WHERE id = ?').get(info.lastInsertRowid);
   res.status(201).json(row);
 });
 
 app.put('/api/products/:id', (req, res) => {
-  const { name, sku, rate, gstRate } = req.body;
+  const { name, hsn, rate, gstRate } = req.body;
   const info = db
-    .prepare('UPDATE products SET name=?, sku=?, rate=?, gst_rate=? WHERE id=?')
-    .run(name, sku ?? null, Number(rate), Number(gstRate) || 0, Number(req.params.id));
+    .prepare('UPDATE products SET name=?, hsn=?, rate=?, gst_rate=? WHERE id=?')
+    .run(name, hsn ?? null, Number(rate), Number(gstRate) || 0, Number(req.params.id));
   if (info.changes === 0) return res.status(404).json({ error: 'not found' });
   res.json(db.prepare('SELECT * FROM products WHERE id = ?').get(Number(req.params.id)));
 });
@@ -115,6 +116,7 @@ app.post('/api/bills', (req, res) => {
     totalGst += gstAmount;
     lineItems.push({
       name: p.name,
+      hsn: p.hsn ?? null,
       rate: p.rate,
       gst_rate: p.gst_rate,
       qty: quantity,
@@ -144,11 +146,11 @@ app.post('/api/bills', (req, res) => {
 
   const billId = billInfo.lastInsertRowid;
   const insertItem = db.prepare(
-    `INSERT INTO bill_items (bill_id, name, rate, gst_rate, qty, taxable, gst_amount, total)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+    `INSERT INTO bill_items (bill_id, name, hsn, rate, gst_rate, qty, taxable, gst_amount, total)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
   );
   for (const li of lineItems) {
-    insertItem.run(billId, li.name, li.rate, li.gst_rate, li.qty, li.taxable, li.gst_amount, li.total);
+    insertItem.run(billId, li.name, li.hsn, li.rate, li.gst_rate, li.qty, li.taxable, li.gst_amount, li.total);
   }
 
   res.status(201).json(serializeBill(db.prepare('SELECT * FROM bills WHERE id = ?').get(billId)));
