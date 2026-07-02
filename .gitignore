@@ -1,0 +1,17 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+
+# Local SQLite database (created at runtime, contains local bill data)
+server/*.db
+server/*.db-journal
+server/*.db-wal
+
+# Env / editor
+.env
+.env.local
+.vscode/
+.DS_Store
+*.log
