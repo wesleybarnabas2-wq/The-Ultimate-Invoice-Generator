@@ -10,12 +10,14 @@ export default function Billing({ settings }) {
   const [qty, setQty] = useState(1);
   const [customer, setCustomer] = useState('');
   const [customerState, setCustomerState] = useState('');
+  const [gstInvoice, setGstInvoice] = useState(true);
   const [receipt, setReceipt] = useState(null);
   const [error, setError] = useState('');
 
   const homeState = settings?.state || '';
   // Inter-state (IGST) is auto-derived: customer state set AND different from home.
-  const interstate = !!customerState && !!homeState && customerState !== homeState;
+  // Never applies to a non-GST bill (Bill of Supply) — no tax to charge.
+  const interstate = gstInvoice && !!customerState && !!homeState && customerState !== homeState;
 
   useEffect(() => {
     api.listProducts().then((p) => {
@@ -56,12 +58,12 @@ export default function Billing({ settings }) {
       if (!p) continue;
       const taxable = p.rate * item.qty;
       subtotal += taxable;
-      gst += (taxable * p.gst_rate) / 100;
+      if (gstInvoice) gst += (taxable * p.gst_rate) / 100;
     }
     const igst = interstate ? gst : 0;
     const cgst = interstate ? 0 : gst / 2;
     return { subtotal, cgst, sgst: cgst, igst, total: subtotal + gst };
-  }, [cart, byId, interstate]);
+  }, [cart, byId, interstate, gstInvoice]);
 
   const generate = async () => {
     setError('');
@@ -71,6 +73,7 @@ export default function Billing({ settings }) {
         customer: customer.trim() || null,
         customerState: customerState || null,
         interstate,
+        gst: gstInvoice,
       });
       setReceipt(r);
     } catch (e) {
@@ -83,6 +86,7 @@ export default function Billing({ settings }) {
     setCart([]);
     setCustomer('');
     setCustomerState('');
+    setGstInvoice(true);
   };
 
   if (receipt) return <Receipt receipt={receipt} settings={settings} onNew={newBill} />;
@@ -92,25 +96,38 @@ export default function Billing({ settings }) {
       <section className="card no-print">
         <h2>Add items</h2>
         {error && <p className="error">{error}</p>}
+        <label>Invoice type
+          <select value={gstInvoice ? 'gst' : 'nongst'}
+            onChange={(e) => setGstInvoice(e.target.value === 'gst')}>
+            <option value="gst">Tax Invoice (with GST)</option>
+            <option value="nongst">Bill of Supply (non-GST)</option>
+          </select>
+        </label>
         <label>Customer (optional)
           <input value={customer} onChange={(e) => setCustomer(e.target.value)}
             placeholder="Walk-in" />
         </label>
-        <label>Customer state (place of supply)
-          <select value={customerState} onChange={(e) => setCustomerState(e.target.value)}>
-            <option value="">— Select —</option>
-            {STATES.map((s) => <option key={s} value={s}>{s}</option>)}
-          </select>
-        </label>
-        {!homeState && (
-          <p className="muted small">Set your home state in Settings to enable auto IGST/CGST detection.</p>
-        )}
-        {homeState && customerState && (
-          <p className={interstate ? 'badge interstate' : 'badge intrastate'}>
-            {interstate
-              ? `Inter-state supply → IGST (${customerState} ≠ ${homeState})`
-              : `Intra-state supply → CGST + SGST (${customerState})`}
-          </p>
+        {gstInvoice ? (
+          <>
+            <label>Customer state (place of supply)
+              <select value={customerState} onChange={(e) => setCustomerState(e.target.value)}>
+                <option value="">— Select —</option>
+                {STATES.map((s) => <option key={s} value={s}>{s}</option>)}
+              </select>
+            </label>
+            {!homeState && (
+              <p className="muted small">Set your home state in Settings to enable auto IGST/CGST detection.</p>
+            )}
+            {homeState && customerState && (
+              <p className={interstate ? 'badge interstate' : 'badge intrastate'}>
+                {interstate
+                  ? `Inter-state supply → IGST (${customerState} ≠ ${homeState})`
+                  : `Intra-state supply → CGST + SGST (${customerState})`}
+              </p>
+            )}
+          </>
+        ) : (
+          <p className="muted small">No GST will be charged on this bill (Bill of Supply).</p>
         )}
         <div className="add-row">
           <label className="grow">Product
@@ -139,7 +156,7 @@ export default function Billing({ settings }) {
           <thead>
             <tr>
               <th>Item</th><th className="num">Rate</th><th className="num">Qty</th>
-              <th className="num">GST</th><th className="num">Amount</th><th></th>
+              {gstInvoice && <th className="num">GST</th>}<th className="num">Amount</th><th></th>
             </tr>
           </thead>
           <tbody>
@@ -147,7 +164,7 @@ export default function Billing({ settings }) {
               const p = byId[item.productId];
               if (!p) return null;
               const taxable = p.rate * item.qty;
-              const lineTotal = taxable * (1 + p.gst_rate / 100);
+              const lineTotal = gstInvoice ? taxable * (1 + p.gst_rate / 100) : taxable;
               return (
                 <tr key={item.productId}>
                   <td>{p.name}</td>
@@ -156,7 +173,7 @@ export default function Billing({ settings }) {
                     <input className="qty-inline" type="number" min="1" value={item.qty}
                       onChange={(e) => updateQty(item.productId, e.target.value)} />
                   </td>
-                  <td className="num">{p.gst_rate}%</td>
+                  {gstInvoice && <td className="num">{p.gst_rate}%</td>}
                   <td className="num">₹{lineTotal.toFixed(2)}</td>
                   <td><button className="link danger no-print"
                     onClick={() => removeItem(item.productId)}>✕</button></td>
@@ -164,21 +181,21 @@ export default function Billing({ settings }) {
               );
             })}
             {cart.length === 0 && (
-              <tr><td colSpan="6" className="muted">No items added.</td></tr>
+              <tr><td colSpan={gstInvoice ? 6 : 5} className="muted">No items added.</td></tr>
             )}
           </tbody>
         </table>
 
         <div className="totals">
-          <div><span>Taxable value</span><span>₹{totals.subtotal.toFixed(2)}</span></div>
-          {interstate ? (
+          <div><span>{gstInvoice ? 'Taxable value' : 'Subtotal'}</span><span>₹{totals.subtotal.toFixed(2)}</span></div>
+          {gstInvoice && (interstate ? (
             <div><span>IGST</span><span>₹{totals.igst.toFixed(2)}</span></div>
           ) : (
             <>
               <div><span>CGST</span><span>₹{totals.cgst.toFixed(2)}</span></div>
               <div><span>SGST</span><span>₹{totals.sgst.toFixed(2)}</span></div>
             </>
-          )}
+          ))}
           <div className="grand"><span>Total</span><span>₹{totals.total.toFixed(2)}</span></div>
         </div>
 

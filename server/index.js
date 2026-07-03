@@ -21,6 +21,7 @@ function serializeBill(bill) {
     customer: bill.customer,
     customerState: bill.customer_state,
     interstate,
+    gst: bill.gst == null ? true : !!bill.gst,
     items: items.map((it) => ({
       name: it.name,
       hsn: it.hsn,
@@ -92,7 +93,7 @@ app.delete('/api/products/:id', (req, res) => {
 
 // Build a receipt from a list of { productId, qty }.
 app.post('/api/bills', (req, res) => {
-  const { items, customer, customerState = null, interstate = false } = req.body;
+  const { items, customer, customerState = null, interstate = false, gst = true } = req.body;
   if (!Array.isArray(items) || items.length === 0) {
     return res.status(400).json({ error: 'items is required and must be non-empty' });
   }
@@ -108,8 +109,10 @@ app.post('/api/bills', (req, res) => {
     const quantity = Number(qty);
     if (!(quantity > 0)) return res.status(400).json({ error: 'qty must be > 0' });
 
+    // Non-GST bills (Bill of Supply) charge no tax regardless of product rate.
+    const effectiveGstRate = gst ? p.gst_rate : 0;
     const taxable = round2(p.rate * quantity);
-    const gstAmount = round2((taxable * p.gst_rate) / 100);
+    const gstAmount = round2((taxable * effectiveGstRate) / 100);
     const lineTotal = round2(taxable + gstAmount);
 
     subtotal += taxable;
@@ -118,7 +121,7 @@ app.post('/api/bills', (req, res) => {
       name: p.name,
       hsn: p.hsn ?? null,
       rate: p.rate,
-      gst_rate: p.gst_rate,
+      gst_rate: effectiveGstRate,
       qty: quantity,
       taxable,
       gst_amount: gstAmount,
@@ -128,10 +131,12 @@ app.post('/api/bills', (req, res) => {
 
   subtotal = round2(subtotal);
   totalGst = round2(totalGst);
+  // A non-GST bill (Bill of Supply) is never inter-state — there's no tax to split.
+  const isInterstate = gst && interstate;
   // Inter-state sale → single IGST. Intra-state → split into CGST + SGST.
-  const igst = interstate ? totalGst : 0;
-  const cgst = interstate ? 0 : round2(totalGst / 2);
-  const sgst = interstate ? 0 : round2(totalGst / 2);
+  const igst = isInterstate ? totalGst : 0;
+  const cgst = isInterstate ? 0 : round2(totalGst / 2);
+  const sgst = isInterstate ? 0 : round2(totalGst / 2);
   const total = round2(subtotal + cgst + sgst + igst);
 
   const now = new Date();
@@ -139,10 +144,10 @@ app.post('/api/bills', (req, res) => {
 
   const billInfo = db
     .prepare(
-      `INSERT INTO bills (invoice_no, created_at, customer, customer_state, subtotal, cgst, sgst, igst, interstate, total)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO bills (invoice_no, created_at, customer, customer_state, subtotal, cgst, sgst, igst, interstate, gst, total)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
-    .run(invoiceNo, now.toISOString(), customer ?? null, customerState ?? null, subtotal, cgst, sgst, igst, interstate ? 1 : 0, total);
+    .run(invoiceNo, now.toISOString(), customer ?? null, customerState ?? null, subtotal, cgst, sgst, igst, isInterstate ? 1 : 0, gst ? 1 : 0, total);
 
   const billId = billInfo.lastInsertRowid;
   const insertItem = db.prepare(

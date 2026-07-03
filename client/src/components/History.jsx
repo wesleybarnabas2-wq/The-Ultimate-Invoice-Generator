@@ -39,7 +39,7 @@ export default function History({ settings }) {
               <td>{b.invoice_no}</td>
               <td>{new Date(b.created_at).toLocaleString('en-IN')}</td>
               <td>{b.customer || 'Walk-in'}</td>
-              <td className="num">{b.interstate ? 'IGST' : 'CGST/SGST'}</td>
+              <td className="num">{b.gst === 0 ? 'None' : b.interstate ? 'IGST' : 'CGST/SGST'}</td>
               <td className="num">₹{b.total.toFixed(2)}</td>
               <td><button className="link" onClick={() => open(b.id)}>View</button></td>
             </tr>

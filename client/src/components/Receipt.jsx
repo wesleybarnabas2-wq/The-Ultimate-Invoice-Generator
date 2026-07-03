@@ -2,6 +2,8 @@ const money = (n) => '₹' + Number(n).toFixed(2);
 
 export default function Receipt({ receipt, settings, onNew, newLabel = '← New Bill' }) {
   const date = new Date(receipt.createdAt).toLocaleString('en-IN');
+  // Bills created before this feature have no `gst` field → treat as GST invoices.
+  const isGst = receipt.gst !== false;
   const interstate = receipt.interstate;
 
   return (
@@ -17,17 +19,19 @@ export default function Receipt({ receipt, settings, onNew, newLabel = '← New 
           {settings?.address && <p className="muted small">{settings.address}</p>}
           {settings?.gstin && <p className="muted small">GSTIN: {settings.gstin}</p>}
           {settings?.state && <p className="muted small">{settings.state}</p>}
-          <p className="muted">Tax Invoice</p>
+          <p className="muted">{isGst ? 'Tax Invoice' : 'Bill of Supply'}</p>
         </div>
 
         <div className="receipt-meta">
           <div><strong>Invoice:</strong> {receipt.invoiceNo}</div>
           <div><strong>Date:</strong> {date}</div>
           <div><strong>Customer:</strong> {receipt.customer || 'Walk-in'}</div>
-          {receipt.customerState && (
+          {isGst && receipt.customerState && (
             <div><strong>Place of supply:</strong> {receipt.customerState}</div>
           )}
-          <div><strong>Supply:</strong> {interstate ? 'Inter-state (IGST)' : 'Intra-state (CGST/SGST)'}</div>
+          {isGst && (
+            <div><strong>Supply:</strong> {interstate ? 'Inter-state (IGST)' : 'Intra-state (CGST/SGST)'}</div>
+          )}
         </div>
 
         <table className="receipt-table">
@@ -36,9 +40,9 @@ export default function Receipt({ receipt, settings, onNew, newLabel = '← New 
               <th>Item</th>
               <th className="num">Rate</th>
               <th className="num">Qty</th>
-              <th className="num">Taxable</th>
-              <th className="num">GST%</th>
-              <th className="num">GST Amt</th>
+              <th className="num">{isGst ? 'Taxable' : 'Amount'}</th>
+              {isGst && <th className="num">GST%</th>}
+              {isGst && <th className="num">GST Amt</th>}
               <th className="num">Total</th>
             </tr>
           </thead>
@@ -49,8 +53,8 @@ export default function Receipt({ receipt, settings, onNew, newLabel = '← New 
                 <td className="num">{money(it.rate)}</td>
                 <td className="num">{it.qty}</td>
                 <td className="num">{money(it.taxable)}</td>
-                <td className="num">{it.gst_rate}%</td>
-                <td className="num">{money(it.gst_amount)}</td>
+                {isGst && <td className="num">{it.gst_rate}%</td>}
+                {isGst && <td className="num">{money(it.gst_amount)}</td>}
                 <td className="num">{money(it.total)}</td>
               </tr>
             ))}
@@ -58,15 +62,15 @@ export default function Receipt({ receipt, settings, onNew, newLabel = '← New 
         </table>
 
         <div className="totals receipt-totals">
-          <div><span>Taxable value</span><span>{money(receipt.subtotal)}</span></div>
-          {interstate ? (
+          <div><span>{isGst ? 'Taxable value' : 'Subtotal'}</span><span>{money(receipt.subtotal)}</span></div>
+          {isGst && (interstate ? (
             <div><span>IGST</span><span>{money(receipt.igst)}</span></div>
           ) : (
             <>
               <div><span>CGST</span><span>{money(receipt.cgst)}</span></div>
               <div><span>SGST</span><span>{money(receipt.sgst)}</span></div>
             </>
-          )}
+          ))}
           <div className="grand"><span>Grand Total</span><span>{money(receipt.total)}</span></div>
         </div>
 

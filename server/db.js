@@ -26,6 +26,7 @@ db.exec(`
     sgst        REAL    NOT NULL,
     igst        REAL    NOT NULL DEFAULT 0,
     interstate  INTEGER NOT NULL DEFAULT 0,
+    gst         INTEGER NOT NULL DEFAULT 1, -- 1 = Tax Invoice, 0 = Bill of Supply (non-GST)
     total       REAL    NOT NULL         -- grand total (rounded)
   );
 
@@ -56,6 +57,7 @@ const billCols = db.prepare('PRAGMA table_info(bills)').all().map((c) => c.name)
 if (!billCols.includes('igst')) db.exec('ALTER TABLE bills ADD COLUMN igst REAL NOT NULL DEFAULT 0');
 if (!billCols.includes('interstate')) db.exec('ALTER TABLE bills ADD COLUMN interstate INTEGER NOT NULL DEFAULT 0');
 if (!billCols.includes('customer_state')) db.exec('ALTER TABLE bills ADD COLUMN customer_state TEXT');
+if (!billCols.includes('gst')) db.exec('ALTER TABLE bills ADD COLUMN gst INTEGER NOT NULL DEFAULT 1');
 
 // Migrate products: the old `sku` column becomes `hsn` (HSN/SAC code).
 const productCols = db.prepare('PRAGMA table_info(products)').all().map((c) => c.name);
