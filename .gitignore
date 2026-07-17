@@ -9,9 +9,11 @@ server/*.db
 server/*.db-journal
 server/*.db-wal
 
-# Env / editor
+# Env / editor (server secrets like SANDBOX_API_KEY live in server/.env)
 .env
 .env.local
+server/.env
+!.env.example
 .vscode/
 .DS_Store
 *.log

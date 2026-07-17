@@ -58,7 +58,7 @@ export default function Settings({ settings, onSaved }) {
               {STATES.map((s) => <option key={s} value={s}>{s}</option>)}
             </select>
           </label>
-          <button type="submit">Save settings</button>
+          <button type="submit">Save profile</button>
         </form>
       </section>
     </div>

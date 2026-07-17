@@ -1,6 +1,11 @@
 import express from 'express';
 import cors from 'cors';
 import db from './db.js';
+import { createSandboxClient } from './sandbox.js';
+import { normalizeGstin, isValidGstin, mapSandboxResponse, isEmptyCustomer } from './gstin.js';
+
+// Load server-only secrets from server/.env if present (never bundled/exposed).
+try { process.loadEnvFile(new URL('./.env', import.meta.url)); } catch { /* no .env — use real env */ }
 
 const app = express();
 app.use(cors());
@@ -20,10 +25,17 @@ function serializeBill(bill) {
     createdAt: bill.created_at,
     customer: bill.customer,
     customerState: bill.customer_state,
+    customerGstin: bill.customer_gstin,
+    customerAddress: bill.cust_address,
+    customerCity: bill.cust_city,
+    customerDistrict: bill.cust_district,
+    customerPincode: bill.cust_pincode,
+    supplyType: bill.supply_type || 'goods',
     interstate,
     gst: bill.gst == null ? true : !!bill.gst,
     items: items.map((it) => ({
       name: it.name,
+      description: it.description ?? null,
       hsn: it.hsn,
       rate: it.rate,
       gst_rate: it.gst_rate,
@@ -93,9 +105,13 @@ app.delete('/api/products/:id', (req, res) => {
 
 // Build a receipt from a list of { productId, qty }.
 app.post('/api/bills', (req, res) => {
-  const { items, customer, customerState = null, interstate = false, gst = true } = req.body;
+  const { items, customer, customerState = null, customerGstin = null, customerDetails = {}, supplyType = 'goods', interstate = false, gst = true } = req.body;
   if (!Array.isArray(items) || items.length === 0) {
     return res.status(400).json({ error: 'items is required and must be non-empty' });
+  }
+  // A Tax Invoice must carry the customer's GSTIN.
+  if (gst && !(customerGstin && String(customerGstin).trim())) {
+    return res.status(400).json({ error: 'customerGstin is required for a Tax Invoice' });
   }
 
   const getProduct = db.prepare('SELECT * FROM products WHERE id = ?');
@@ -103,24 +119,46 @@ app.post('/api/bills', (req, res) => {
   let subtotal = 0;
   let totalGst = 0;
 
-  for (const { productId, qty } of items) {
-    const p = getProduct.get(Number(productId));
-    if (!p) return res.status(400).json({ error: `unknown product ${productId}` });
-    const quantity = Number(qty);
-    if (!(quantity > 0)) return res.status(400).json({ error: 'qty must be > 0' });
+  for (const item of items) {
+    // Two kinds of line: a product reference ({ productId, qty }) or an
+    // ad-hoc service ({ name, description, amount, gstRate }, no productId).
+    let name, description, hsn, rate, quantity, itemGstRate;
 
-    // Non-GST bills (Bill of Supply) charge no tax regardless of product rate.
-    const effectiveGstRate = gst ? p.gst_rate : 0;
-    const taxable = round2(p.rate * quantity);
+    if (item.productId != null) {
+      const p = getProduct.get(Number(item.productId));
+      if (!p) return res.status(400).json({ error: `unknown product ${item.productId}` });
+      quantity = Number(item.qty);
+      if (!(quantity > 0)) return res.status(400).json({ error: 'qty must be > 0' });
+      name = p.name;
+      description = null;
+      hsn = p.hsn ?? null;
+      rate = p.rate;
+      itemGstRate = p.gst_rate;
+    } else {
+      name = (item.name || '').trim();
+      if (!name) return res.status(400).json({ error: 'service name is required' });
+      const amount = Number(item.amount);
+      if (!(amount > 0)) return res.status(400).json({ error: 'service amount must be > 0' });
+      description = item.description ? String(item.description).trim() || null : null;
+      hsn = null;
+      rate = amount;
+      quantity = 1;
+      itemGstRate = Number(item.gstRate) || 0;
+    }
+
+    // Non-GST bills (Bill of Supply) charge no tax regardless of the rate.
+    const effectiveGstRate = gst ? itemGstRate : 0;
+    const taxable = round2(rate * quantity);
     const gstAmount = round2((taxable * effectiveGstRate) / 100);
     const lineTotal = round2(taxable + gstAmount);
 
     subtotal += taxable;
     totalGst += gstAmount;
     lineItems.push({
-      name: p.name,
-      hsn: p.hsn ?? null,
-      rate: p.rate,
+      name,
+      description,
+      hsn,
+      rate,
       gst_rate: effectiveGstRate,
       qty: quantity,
       taxable,
@@ -142,20 +180,31 @@ app.post('/api/bills', (req, res) => {
   const now = new Date();
   const invoiceNo = 'INV-' + now.getFullYear() + '-' + String(Date.now()).slice(-6);
 
+  // Customer GSTIN only applies to a Tax Invoice (Bill of Supply charges no GST).
+  const custGstin = gst ? (customerGstin || null) : null;
+  const supply = ['services', 'goods_services'].includes(supplyType) ? supplyType : 'goods';
+  // Customer address details (from the GSTIN lookup, possibly edited) — Tax Invoice only.
+  const cd = gst && customerDetails ? customerDetails : {};
+  const trimOrNull = (v) => (v && String(v).trim() ? String(v).trim() : null);
+  const custAddress = trimOrNull(cd.registeredAddress);
+  const custCity = trimOrNull(cd.city);
+  const custDistrict = trimOrNull(cd.district);
+  const custPincode = trimOrNull(cd.pincode);
+
   const billInfo = db
     .prepare(
-      `INSERT INTO bills (invoice_no, created_at, customer, customer_state, subtotal, cgst, sgst, igst, interstate, gst, total)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO bills (invoice_no, created_at, customer, customer_state, customer_gstin, supply_type, cust_address, cust_city, cust_district, cust_pincode, subtotal, cgst, sgst, igst, interstate, gst, total)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
-    .run(invoiceNo, now.toISOString(), customer ?? null, customerState ?? null, subtotal, cgst, sgst, igst, isInterstate ? 1 : 0, gst ? 1 : 0, total);
+    .run(invoiceNo, now.toISOString(), customer ?? null, customerState ?? null, custGstin, supply, custAddress, custCity, custDistrict, custPincode, subtotal, cgst, sgst, igst, isInterstate ? 1 : 0, gst ? 1 : 0, total);
 
   const billId = billInfo.lastInsertRowid;
   const insertItem = db.prepare(
-    `INSERT INTO bill_items (bill_id, name, hsn, rate, gst_rate, qty, taxable, gst_amount, total)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    `INSERT INTO bill_items (bill_id, name, description, hsn, rate, gst_rate, qty, taxable, gst_amount, total)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   );
   for (const li of lineItems) {
-    insertItem.run(billId, li.name, li.hsn, li.rate, li.gst_rate, li.qty, li.taxable, li.gst_amount, li.total);
+    insertItem.run(billId, li.name, li.description ?? null, li.hsn, li.rate, li.gst_rate, li.qty, li.taxable, li.gst_amount, li.total);
   }
 
   res.status(201).json(serializeBill(db.prepare('SELECT * FROM bills WHERE id = ?').get(billId)));
@@ -170,6 +219,51 @@ app.get('/api/bills/:id', (req, res) => {
   const bill = db.prepare('SELECT * FROM bills WHERE id = ?').get(Number(req.params.id));
   if (!bill) return res.status(404).json({ error: 'not found' });
   res.json(serializeBill(bill));
+});
+
+/* ----------------------------- GST lookup ----------------------------- */
+
+// Single shared Sandbox client so the access token is cached across requests.
+const sandbox = createSandboxClient({
+  baseUrl: process.env.SANDBOX_BASE_URL || 'https://api.sandbox.co.in',
+  apiKey: process.env.SANDBOX_API_KEY || '',
+  apiSecret: process.env.SANDBOX_API_SECRET || '',
+});
+
+// Coded error → [http status, user-facing message]. No provider detail leaks.
+const GST_ERRORS = {
+  INVALID_FORMAT: [400, 'Enter a valid 15-character GSTIN.'],
+  NOT_FOUND:      [404, 'No GST registration details were found for this GSTIN.'],
+  AUTH_FAILED:    [503, 'GST verification is temporarily unavailable.'],
+  SUBSCRIPTION:   [503, 'GST lookup is currently unavailable. Please contact support.'],
+  RATE_LIMIT:     [429, 'Too many GST lookup requests. Please try again shortly.'],
+  TIMEOUT:        [504, 'The GST lookup took too long. Please try again.'],
+  NETWORK:        [502, 'Unable to connect to the GST verification service.'],
+  UPSTREAM:       [502, 'GST details could not be retrieved. Please try again.'],
+};
+
+// Look up live GST registration details and return ONLY the six approved fields.
+app.post('/api/gst/lookup', async (req, res) => {
+  const gstin = normalizeGstin(req.body?.gstin);
+  if (!isValidGstin(gstin)) {
+    const [status, error] = GST_ERRORS.INVALID_FORMAT;
+    return res.status(status).json({ success: false, error });
+  }
+  try {
+    const raw = await sandbox.searchGstin(gstin);
+    const customer = mapSandboxResponse(raw); // exactly six fields
+    if (isEmptyCustomer(customer)) {
+      const [status, error] = GST_ERRORS.NOT_FOUND;
+      return res.status(status).json({ success: false, error });
+    }
+    return res.json({ success: true, customer });
+  } catch (e) {
+    const code = (e && GST_ERRORS[e.code]) ? e.code : 'UPSTREAM';
+    // Log the code only — never headers, tokens, secrets, or the raw response.
+    console.error(`[gst/lookup] failed: ${code}`);
+    const [status, error] = GST_ERRORS[code];
+    return res.status(status).json({ success: false, error });
+  }
 });
 
 const PORT = process.env.PORT || 3001;

@@ -23,6 +23,13 @@ export const api = {
     }).then(json),
   deleteProduct: (id) =>
     fetch(`/api/products/${id}`, { method: 'DELETE' }).then(json),
+  // Live GSTIN lookup — always goes through our backend, never Sandbox directly.
+  lookupGstin: (gstin) =>
+    fetch('/api/gst/lookup', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ gstin }),
+    }).then(json),
   createBill: (payload) =>
     fetch('/api/bills', {
       method: 'POST',

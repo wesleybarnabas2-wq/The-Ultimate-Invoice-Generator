@@ -21,6 +21,12 @@ db.exec(`
     created_at  TEXT    NOT NULL,
     customer    TEXT,
     customer_state TEXT,
+    customer_gstin TEXT,
+    supply_type TEXT NOT NULL DEFAULT 'goods', -- 'goods' | 'services'
+    cust_address  TEXT,   -- registered address (from GSTIN lookup, editable)
+    cust_city     TEXT,
+    cust_district TEXT,
+    cust_pincode  TEXT,
     subtotal    REAL    NOT NULL,        -- taxable value (GST-exclusive)
     cgst        REAL    NOT NULL,
     sgst        REAL    NOT NULL,
@@ -42,6 +48,7 @@ db.exec(`
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
     bill_id    INTEGER NOT NULL REFERENCES bills(id) ON DELETE CASCADE,
     name       TEXT    NOT NULL,
+    description TEXT,                        -- optional line note (used for services)
     hsn        TEXT,                        -- HSN/SAC code (snapshot at bill time)
     rate       REAL    NOT NULL,
     gst_rate   REAL    NOT NULL,
@@ -57,6 +64,12 @@ const billCols = db.prepare('PRAGMA table_info(bills)').all().map((c) => c.name)
 if (!billCols.includes('igst')) db.exec('ALTER TABLE bills ADD COLUMN igst REAL NOT NULL DEFAULT 0');
 if (!billCols.includes('interstate')) db.exec('ALTER TABLE bills ADD COLUMN interstate INTEGER NOT NULL DEFAULT 0');
 if (!billCols.includes('customer_state')) db.exec('ALTER TABLE bills ADD COLUMN customer_state TEXT');
+if (!billCols.includes('customer_gstin')) db.exec('ALTER TABLE bills ADD COLUMN customer_gstin TEXT');
+if (!billCols.includes('supply_type')) db.exec("ALTER TABLE bills ADD COLUMN supply_type TEXT NOT NULL DEFAULT 'goods'");
+if (!billCols.includes('cust_address')) db.exec('ALTER TABLE bills ADD COLUMN cust_address TEXT');
+if (!billCols.includes('cust_city')) db.exec('ALTER TABLE bills ADD COLUMN cust_city TEXT');
+if (!billCols.includes('cust_district')) db.exec('ALTER TABLE bills ADD COLUMN cust_district TEXT');
+if (!billCols.includes('cust_pincode')) db.exec('ALTER TABLE bills ADD COLUMN cust_pincode TEXT');
 if (!billCols.includes('gst')) db.exec('ALTER TABLE bills ADD COLUMN gst INTEGER NOT NULL DEFAULT 1');
 
 // Migrate products: the old `sku` column becomes `hsn` (HSN/SAC code).
@@ -70,6 +83,7 @@ if (productCols.includes('sku') && !productCols.includes('hsn')) {
 // Migrate bill_items: add hsn so historical invoices can show the code too.
 const itemCols = db.prepare('PRAGMA table_info(bill_items)').all().map((c) => c.name);
 if (!itemCols.includes('hsn')) db.exec('ALTER TABLE bill_items ADD COLUMN hsn TEXT');
+if (!itemCols.includes('description')) db.exec('ALTER TABLE bill_items ADD COLUMN description TEXT');
 
 // Seed the single settings row.
 if (!db.prepare('SELECT id FROM settings WHERE id = 1').get()) {

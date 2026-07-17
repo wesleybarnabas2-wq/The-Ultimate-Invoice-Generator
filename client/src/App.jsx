@@ -9,7 +9,7 @@ const TABS = [
   ['billing', 'New Bill'],
   ['products', 'Products'],
   ['history', 'History'],
-  ['settings', 'Settings'],
+  ['settings', 'My Profile'],
 ];
 
 export default function App() {
@@ -26,7 +26,7 @@ export default function App() {
         <nav>
           {TABS.map(([id, label]) => (
             <button key={id} className={tab === id ? 'active' : ''} onClick={() => setTab(id)}>
-              {label}
+              {id === 'settings' ? (settings?.store_name?.trim() || label) : label}
             </button>
           ))}
         </nav>

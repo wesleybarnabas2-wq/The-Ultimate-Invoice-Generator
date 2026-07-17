@@ -78,6 +78,8 @@ button.link.danger { color: var(--danger); }
 .add-row .grow { flex: 1; }
 .add-row .qty { width: 80px; }
 .add-row button { margin-bottom: 12px; }
+.service-entry { border-top: 1px solid var(--border); margin-top: 12px; padding-top: 4px; }
+.section-sub { font-size: 14px; margin: 8px 0 4px; }
 
 table { width: 100%; border-collapse: collapse; font-size: 14px; }
 th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--border); }

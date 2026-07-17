@@ -25,7 +25,26 @@ export default function Receipt({ receipt, settings, onNew, newLabel = '← New 
         <div className="receipt-meta">
           <div><strong>Invoice:</strong> {receipt.invoiceNo}</div>
           <div><strong>Date:</strong> {date}</div>
+          {receipt.supplyType && (
+            <div><strong>Supply type:</strong> {
+              receipt.supplyType === 'services' ? 'Services'
+                : receipt.supplyType === 'goods_services' ? 'Goods & Services'
+                : 'Goods'
+            }</div>
+          )}
           <div><strong>Customer:</strong> {receipt.customer || 'Walk-in'}</div>
+          {isGst && receipt.customerGstin && (
+            <div><strong>Customer GSTIN:</strong> {receipt.customerGstin}</div>
+          )}
+          {isGst && receipt.customerAddress && (
+            <div><strong>Address:</strong> {receipt.customerAddress}</div>
+          )}
+          {isGst && (receipt.customerCity || receipt.customerDistrict || receipt.customerPincode) && (
+            <div className="muted small">
+              {[receipt.customerCity, receipt.customerDistrict, receipt.customerPincode]
+                .filter(Boolean).join(', ')}
+            </div>
+          )}
           {isGst && receipt.customerState && (
             <div><strong>Place of supply:</strong> {receipt.customerState}</div>
           )}
@@ -49,7 +68,10 @@ export default function Receipt({ receipt, settings, onNew, newLabel = '← New 
           <tbody>
             {receipt.items.map((it, i) => (
               <tr key={i}>
-                <td>{it.name}</td>
+                <td>
+                  {it.name}
+                  {it.description && <div className="muted small">{it.description}</div>}
+                </td>
                 <td className="num">{money(it.rate)}</td>
                 <td className="num">{it.qty}</td>
                 <td className="num">{money(it.taxable)}</td>
