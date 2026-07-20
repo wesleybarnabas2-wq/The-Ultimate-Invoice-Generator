@@ -468,7 +468,7 @@ export default function Billing({ settings }) {
         </div>
         {!catalog.length && (
           <p className="muted small">
-            Nothing catalogued for this supply type — add it in the Products tab.
+            Nothing catalogued for this supply type — add it in the Catalog tab.
           </p>
         )}
 

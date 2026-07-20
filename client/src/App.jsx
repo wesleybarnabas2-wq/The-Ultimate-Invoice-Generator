@@ -7,7 +7,7 @@ import { api } from './api.js';
 
 const TABS = [
   ['billing', 'New Bill'],
-  ['products', 'Products'],
+  ['products', 'Catalog'],
   ['history', 'History'],
   ['settings', 'My Profile'],
 ];
