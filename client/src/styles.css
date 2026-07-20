@@ -17,7 +17,7 @@ body {
   color: var(--text);
 }
 
-.app { max-width: 1000px; margin: 0 auto; padding: 16px; }
+.app { max-width: 1280px; margin: 0 auto; padding: 16px; }
 
 .topbar {
   display: flex; align-items: center; justify-content: space-between;
@@ -33,6 +33,19 @@ body {
 
 .grid { display: grid; grid-template-columns: 1fr 1.3fr; gap: 16px; align-items: start; }
 @media (max-width: 760px) { .grid { grid-template-columns: 1fr; } }
+
+/* New Bill: recipient | goods & services | live invoice preview. */
+.grid-3 { grid-template-columns: 1fr 1.2fr 1.1fr; }
+@media (max-width: 1180px) { .grid-3 { grid-template-columns: 1fr 1fr; } }
+@media (max-width: 760px) { .grid-3 { grid-template-columns: 1fr; } }
+
+/* The preview shows a real invoice in a narrow column, so scale it down and
+   let a wide item table scroll rather than blowing out the layout. */
+.preview-pane { background: #eef1f7; }
+.preview-pane .receipt { font-size: 12px; padding: 14px; overflow-x: auto; }
+.preview-pane .receipt h2 { font-size: 15px; }
+.preview-pane .receipt-table { font-size: 11px; }
+.preview-pane .receipt-table th, .preview-pane .receipt-table td { padding: 4px 5px; }
 
 .card {
   background: var(--card); border: 1px solid var(--border);
@@ -72,6 +85,30 @@ button.primary { background: var(--primary); }
 button.block { width: 100%; margin-top: 12px; }
 button.link { background: none; color: var(--primary); padding: 2px 6px; }
 button.link.danger { color: var(--danger); }
+
+/* Registration-status block on the profile page. */
+fieldset.choice {
+  border: 1px solid var(--border); border-radius: 8px;
+  padding: 10px 12px; margin: 0 0 16px;
+}
+fieldset.choice legend { font-size: 13px; color: var(--muted); padding: 0 4px; }
+fieldset.choice label.checkbox { margin-bottom: 8px; font-size: 14px; }
+fieldset.choice label.checkbox:last-of-type { margin-bottom: 0; }
+.gstin-line { margin-top: 10px; color: var(--text); }
+
+/* GSTIN prompt shown when "Registered dealer" is selected. */
+.modal-backdrop {
+  position: fixed; inset: 0; background: rgba(28, 35, 51, 0.45);
+  display: flex; align-items: center; justify-content: center;
+  padding: 16px; z-index: 50;
+}
+.modal {
+  background: var(--card); border-radius: 12px; padding: 20px;
+  width: 100%; max-width: 380px;
+  box-shadow: 0 12px 32px rgba(28, 35, 51, 0.2);
+}
+.modal h3 { margin: 0 0 4px; font-size: 16px; }
+.modal-actions { display: flex; justify-content: flex-end; gap: 8px; }
 
 .row { display: flex; gap: 8px; }
 .add-row { display: flex; gap: 8px; align-items: flex-end; }

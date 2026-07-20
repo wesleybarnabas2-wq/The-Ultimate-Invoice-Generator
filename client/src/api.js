@@ -37,6 +37,8 @@ export const api = {
       body: JSON.stringify(payload),
     }).then(json),
   listBills: () => fetch('/api/bills').then(json),
+  // Next number in the series, suggested from the most recent bill.
+  nextInvoiceNo: () => fetch('/api/bills/next-number').then(json),
   getBill: (id) => fetch(`/api/bills/${id}`).then(json),
   getSettings: () => fetch('/api/settings').then(json),
   saveSettings: (s) =>

@@ -3,6 +3,7 @@ import cors from 'cors';
 import db from './db.js';
 import { createSandboxClient } from './sandbox.js';
 import { normalizeGstin, isValidGstin, mapSandboxResponse, isEmptyCustomer } from './gstin.js';
+import { bumpInvoiceNo, FIRST_INVOICE_NO } from './invoice-no.js';
 
 // Load server-only secrets from server/.env if present (never bundled/exposed).
 try { process.loadEnvFile(new URL('./.env', import.meta.url)); } catch { /* no .env — use real env */ }
@@ -30,6 +31,8 @@ function serializeBill(bill) {
     customerCity: bill.cust_city,
     customerDistrict: bill.cust_district,
     customerPincode: bill.cust_pincode,
+    customerPhone: bill.cust_phone,
+    customerEmail: bill.cust_email,
     supplyType: bill.supply_type || 'goods',
     interstate,
     gst: bill.gst == null ? true : !!bill.gst,
@@ -60,37 +63,62 @@ app.get('/api/settings', (req, res) => {
 });
 
 app.put('/api/settings', (req, res) => {
-  const { store_name, address, gstin, state } = req.body;
+  const { store_name, address, gstin, state, dealer_type } = req.body;
+
+  const dealerType = dealer_type === 'registered' ? 'registered' : 'unregistered';
+
+  // A registered dealer must carry a valid GSTIN — it prints on every tax
+  // invoice. An unregistered dealer has none, so drop whatever was sent.
+  let storedGstin = '';
+  if (dealerType === 'registered') {
+    storedGstin = normalizeGstin(gstin);
+    if (!isValidGstin(storedGstin)) {
+      return res.status(400).json({
+        error: 'A registered dealer needs a valid 15-character GSTIN.',
+      });
+    }
+  }
+
+  // Contact details are all optional — blank is stored as NULL.
+  const opt = (v) => (v && String(v).trim() ? String(v).trim() : null);
+  const { phone, email, website, social1, social2, social3 } = req.body;
+
   db.prepare(
-    'UPDATE settings SET store_name=?, address=?, gstin=?, state=? WHERE id=1'
-  ).run(store_name ?? '', address ?? '', gstin ?? '', state ?? '');
+    `UPDATE settings SET store_name=?, address=?, gstin=?, state=?, dealer_type=?,
+       phone=?, email=?, website=?, social1=?, social2=?, social3=? WHERE id=1`
+  ).run(store_name ?? '', address ?? '', storedGstin, state ?? '', dealerType,
+    opt(phone), opt(email), opt(website), opt(social1), opt(social2), opt(social3));
   res.json(db.prepare('SELECT * FROM settings WHERE id = 1').get());
 });
 
 /* ------------------------------ Products ------------------------------ */
 
+// A catalog entry is either goods (HSN) or a service (SAC); anything else
+// falls back to goods so an odd value can't create a third category.
+const asKind = (v) => (v === 'service' ? 'service' : 'goods');
+
 app.get('/api/products', (req, res) => {
-  const rows = db.prepare('SELECT * FROM products ORDER BY name').all();
+  const rows = db.prepare('SELECT * FROM products ORDER BY kind, name').all();
   res.json(rows);
 });
 
 app.post('/api/products', (req, res) => {
-  const { name, hsn, rate, gstRate } = req.body;
+  const { name, kind, hsn, rate, gstRate } = req.body;
   if (!name || rate == null) {
     return res.status(400).json({ error: 'name and rate are required' });
   }
   const info = db
-    .prepare('INSERT INTO products (name, hsn, rate, gst_rate) VALUES (?, ?, ?, ?)')
-    .run(name, hsn ?? null, Number(rate), Number(gstRate) || 0);
+    .prepare('INSERT INTO products (name, kind, hsn, rate, gst_rate) VALUES (?, ?, ?, ?, ?)')
+    .run(name, asKind(kind), hsn ?? null, Number(rate), Number(gstRate) || 0);
   const row = db.prepare('SELECT * FROM products WHERE id = ?').get(info.lastInsertRowid);
   res.status(201).json(row);
 });
 
 app.put('/api/products/:id', (req, res) => {
-  const { name, hsn, rate, gstRate } = req.body;
+  const { name, kind, hsn, rate, gstRate } = req.body;
   const info = db
-    .prepare('UPDATE products SET name=?, hsn=?, rate=?, gst_rate=? WHERE id=?')
-    .run(name, hsn ?? null, Number(rate), Number(gstRate) || 0, Number(req.params.id));
+    .prepare('UPDATE products SET name=?, kind=?, hsn=?, rate=?, gst_rate=? WHERE id=?')
+    .run(name, asKind(kind), hsn ?? null, Number(rate), Number(gstRate) || 0, Number(req.params.id));
   if (info.changes === 0) return res.status(404).json({ error: 'not found' });
   res.json(db.prepare('SELECT * FROM products WHERE id = ?').get(Number(req.params.id)));
 });
@@ -108,6 +136,15 @@ app.post('/api/bills', (req, res) => {
   const { items, customer, customerState = null, customerGstin = null, customerDetails = {}, supplyType = 'goods', interstate = false, gst = true } = req.body;
   if (!Array.isArray(items) || items.length === 0) {
     return res.status(400).json({ error: 'items is required and must be non-empty' });
+  }
+  // Only a GST-registered dealer may charge GST; anyone else bills Bill of Supply.
+  if (gst) {
+    const { dealer_type } = db.prepare('SELECT dealer_type FROM settings WHERE id = 1').get() ?? {};
+    if (dealer_type !== 'registered') {
+      return res.status(400).json({
+        error: 'An unregistered dealer cannot issue a Tax Invoice — use Bill of Supply.',
+      });
+    }
   }
   // A Tax Invoice must carry the customer's GSTIN.
   if (gst && !(customerGstin && String(customerGstin).trim())) {
@@ -140,7 +177,7 @@ app.post('/api/bills', (req, res) => {
       const amount = Number(item.amount);
       if (!(amount > 0)) return res.status(400).json({ error: 'service amount must be > 0' });
       description = item.description ? String(item.description).trim() || null : null;
-      hsn = null;
+      hsn = item.hsn ? String(item.hsn).trim() || null : null; // SAC code, optional
       rate = amount;
       quantity = 1;
       itemGstRate = Number(item.gstRate) || 0;
@@ -178,7 +215,18 @@ app.post('/api/bills', (req, res) => {
   const total = round2(subtotal + cgst + sgst + igst);
 
   const now = new Date();
-  const invoiceNo = 'INV-' + now.getFullYear() + '-' + String(Date.now()).slice(-6);
+  // The biller sets the invoice number themselves — GST expects a consecutive
+  // series they control, so it is never generated on their behalf.
+  const invoiceNo = String(req.body?.invoiceNo ?? '').trim();
+  if (!invoiceNo) {
+    return res.status(400).json({ error: 'Invoice number is required.' });
+  }
+  if (invoiceNo.length > 32) {
+    return res.status(400).json({ error: 'Invoice number is limited to 32 characters.' });
+  }
+  if (db.prepare('SELECT 1 FROM bills WHERE invoice_no = ?').get(invoiceNo)) {
+    return res.status(409).json({ error: `Invoice number ${invoiceNo} has already been used.` });
+  }
 
   // Customer GSTIN only applies to a Tax Invoice (Bill of Supply charges no GST).
   const custGstin = gst ? (customerGstin || null) : null;
@@ -190,13 +238,18 @@ app.post('/api/bills', (req, res) => {
   const custCity = trimOrNull(cd.city);
   const custDistrict = trimOrNull(cd.district);
   const custPincode = trimOrNull(cd.pincode);
+  // Contact details are typed in rather than looked up, so they apply to a
+  // Bill of Supply just as much as a Tax Invoice.
+  const contact = customerDetails || {};
+  const custPhone = trimOrNull(contact.phone);
+  const custEmail = trimOrNull(contact.email);
 
   const billInfo = db
     .prepare(
-      `INSERT INTO bills (invoice_no, created_at, customer, customer_state, customer_gstin, supply_type, cust_address, cust_city, cust_district, cust_pincode, subtotal, cgst, sgst, igst, interstate, gst, total)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO bills (invoice_no, created_at, customer, customer_state, customer_gstin, supply_type, cust_address, cust_city, cust_district, cust_pincode, cust_phone, cust_email, subtotal, cgst, sgst, igst, interstate, gst, total)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
-    .run(invoiceNo, now.toISOString(), customer ?? null, customerState ?? null, custGstin, supply, custAddress, custCity, custDistrict, custPincode, subtotal, cgst, sgst, igst, isInterstate ? 1 : 0, gst ? 1 : 0, total);
+    .run(invoiceNo, now.toISOString(), customer ?? null, customerState ?? null, custGstin, supply, custAddress, custCity, custDistrict, custPincode, custPhone, custEmail, subtotal, cgst, sgst, igst, isInterstate ? 1 : 0, gst ? 1 : 0, total);
 
   const billId = billInfo.lastInsertRowid;
   const insertItem = db.prepare(
@@ -213,6 +266,22 @@ app.post('/api/bills', (req, res) => {
 app.get('/api/bills', (req, res) => {
   const rows = db.prepare('SELECT * FROM bills ORDER BY id DESC').all();
   res.json(rows);
+});
+
+// Suggest the next number in the series. Declared before "/api/bills/:id" so
+// the id route doesn't swallow it.
+app.get('/api/bills/next-number', (req, res) => {
+  const last = db.prepare('SELECT invoice_no FROM bills ORDER BY id DESC LIMIT 1').get();
+  if (!last) return res.json({ invoiceNo: FIRST_INVOICE_NO });
+
+  const taken = db.prepare('SELECT 1 FROM bills WHERE invoice_no = ?');
+  let candidate = bumpInvoiceNo(last.invoice_no);
+  // Numbers can be entered by hand and out of order, so walk past any that are
+  // already used rather than suggesting one that would be rejected on save.
+  for (let i = 0; i < 1000 && candidate && taken.get(candidate); i++) {
+    candidate = bumpInvoiceNo(candidate);
+  }
+  res.json({ invoiceNo: candidate || FIRST_INVOICE_NO });
 });
 
 app.get('/api/bills/:id', (req, res) => {

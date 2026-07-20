@@ -1,17 +1,27 @@
 const money = (n) => '₹' + Number(n).toFixed(2);
 
-export default function Receipt({ receipt, settings, onNew, newLabel = '← New Bill' }) {
+// `preview` renders the same invoice against an unsaved draft: no print/new
+// actions, and the invoice number may not have been entered yet.
+export default function Receipt({ receipt, settings, onNew, newLabel = '← New Bill', preview = false }) {
   const date = new Date(receipt.createdAt).toLocaleString('en-IN');
   // Bills created before this feature have no `gst` field → treat as GST invoices.
   const isGst = receipt.gst !== false;
   const interstate = receipt.interstate;
+  // HSN (goods) / SAC (services) codes are optional — only show the column when
+  // at least one line actually carries one.
+  const showCodes = receipt.items.some((it) => it.hsn);
+  // Store contact details and social links — every one of them is optional.
+  const contact = [settings?.phone, settings?.email, settings?.website].filter(Boolean);
+  const socials = [settings?.social1, settings?.social2, settings?.social3].filter(Boolean);
 
   return (
     <div>
-      <div className="receipt-actions no-print">
-        <button className="secondary" onClick={onNew}>{newLabel}</button>
-        <button className="primary" onClick={() => window.print()}>🖨 Print / Save PDF</button>
-      </div>
+      {!preview && (
+        <div className="receipt-actions no-print">
+          <button className="secondary" onClick={onNew}>{newLabel}</button>
+          <button className="primary" onClick={() => window.print()}>🖨 Print / Save PDF</button>
+        </div>
+      )}
 
       <div className="receipt">
         <div className="receipt-head">
@@ -19,11 +29,12 @@ export default function Receipt({ receipt, settings, onNew, newLabel = '← New 
           {settings?.address && <p className="muted small">{settings.address}</p>}
           {settings?.gstin && <p className="muted small">GSTIN: {settings.gstin}</p>}
           {settings?.state && <p className="muted small">{settings.state}</p>}
+          {contact.length > 0 && <p className="muted small">{contact.join(' · ')}</p>}
           <p className="muted">{isGst ? 'Tax Invoice' : 'Bill of Supply'}</p>
         </div>
 
         <div className="receipt-meta">
-          <div><strong>Invoice:</strong> {receipt.invoiceNo}</div>
+          <div><strong>Invoice:</strong> {receipt.invoiceNo || <span className="muted">not set yet</span>}</div>
           <div><strong>Date:</strong> {date}</div>
           {receipt.supplyType && (
             <div><strong>Supply type:</strong> {
@@ -45,6 +56,11 @@ export default function Receipt({ receipt, settings, onNew, newLabel = '← New 
                 .filter(Boolean).join(', ')}
             </div>
           )}
+          {(receipt.customerPhone || receipt.customerEmail) && (
+            <div className="muted small">
+              {[receipt.customerPhone, receipt.customerEmail].filter(Boolean).join(' · ')}
+            </div>
+          )}
           {isGst && receipt.customerState && (
             <div><strong>Place of supply:</strong> {receipt.customerState}</div>
           )}
@@ -57,6 +73,7 @@ export default function Receipt({ receipt, settings, onNew, newLabel = '← New 
           <thead>
             <tr>
               <th>Item</th>
+              {showCodes && <th>HSN/SAC</th>}
               <th className="num">Rate</th>
               <th className="num">Qty</th>
               <th className="num">{isGst ? 'Taxable' : 'Amount'}</th>
@@ -72,6 +89,7 @@ export default function Receipt({ receipt, settings, onNew, newLabel = '← New 
                   {it.name}
                   {it.description && <div className="muted small">{it.description}</div>}
                 </td>
+                {showCodes && <td>{it.hsn || '—'}</td>}
                 <td className="num">{money(it.rate)}</td>
                 <td className="num">{it.qty}</td>
                 <td className="num">{money(it.taxable)}</td>
@@ -96,7 +114,12 @@ export default function Receipt({ receipt, settings, onNew, newLabel = '← New 
           <div className="grand"><span>Grand Total</span><span>{money(receipt.total)}</span></div>
         </div>
 
-        <p className="receipt-foot muted">Thank you for your business!</p>
+        <p className="receipt-foot muted">
+          Thank you for your business!
+          {socials.length > 0 && (
+            <><br /><span className="small">{socials.join(' · ')}</span></>
+          )}
+        </p>
       </div>
     </div>
   );
