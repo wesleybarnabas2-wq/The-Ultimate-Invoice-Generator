@@ -35,7 +35,7 @@ npm run dev
 Open http://localhost:5173.
 
 ## Using it
-1. **Products tab** — add/edit products with a rate and GST slab (0/5/12/18/28%).
+1. **Catalog tab** — add/edit products with a rate and GST slab (0/5/12/18/28%).
 2. **New Bill tab** — choose a product, set quantity, add it to the bill. Totals
    (taxable value, CGST, SGST, grand total) update live.
 3. **Generate Receipt** — saves the bill and shows a printable tax invoice.

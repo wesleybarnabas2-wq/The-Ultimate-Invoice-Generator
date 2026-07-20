@@ -319,7 +319,7 @@ export default function Billing({ settings }) {
               <button onClick={addToCart} disabled={!products.length}>Add</button>
             </div>
             {!products.length && (
-              <p className="muted">No products found. Add some in the Products tab first.</p>
+              <p className="muted">No products found. Add some in the Catalog tab first.</p>
             )}
           </>
         )}
